@@ -60,6 +60,8 @@ class Gemini(LanguageModel):
         if model_name not in SUPPORTED_MODELS:
             raise ValueError(f"Unsupported model: {model_name}. Supported models: {', '.join(SUPPORTED_MODELS)}")
         
+        load_dotenv()
+
         api_key: str = api_key or os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("Gemini API key not found. Please provide it or set the GOOGLE_API_KEY environment variable.")
