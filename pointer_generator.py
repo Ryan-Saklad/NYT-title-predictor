@@ -175,21 +175,29 @@ class PointerGeneratorLayer(tf.keras.layers.Layer):
         input_sequence = tf.concat([tiled_index, input_sequence], axis=2)
         input_sequence = tf.reshape(input_sequence, [batch_size*self.abs_len*sequence_len,3])
         
-        # produce the 
+        # produce the updated distribution
         best_dist = tf.tensor_scatter_nd_update(decoder_outputs, input_sequence, attention_scores)
-        
+
+        # kill 0 (the unknown token so it is never produced)
+        # use 1s so we can index into the best_dist
         kill_mask = tf.ones(batch_size*sequence_len, tf.int32)
+        # set the values to 0
         kill_values = tf.zeros(batch_size*sequence_len, tf.float32)
 
+        # prep the kill mask
         kill_mask = tf.reshape(kill_mask, [batch_size*sequence_len, 1])
+        # get more indicies
         repeat_index = repeat_idx[:sequence_len]
+        # tile the repeat index so it can properly index into the decoder dist
         tiled_index = tf.tile(repeat_index, [(tf.shape(kill_mask)[0]/sequence_len), 1])
         kill_mask = tf.concat([tiled_index, kill_mask], axis=1)
 
+        # get and tile repeats to properly index into decoder dist
         repeat_index = repeat_idx2[:batch_size]
         tiled_index = tf.repeat(repeat_index, repeats = sequence_len, axis=0)
         kill_mask = tf.concat([tiled_index, kill_mask], axis=1)
 
+        # update best dist to remove the scores for the unknown token.
         best_dist = tf.tensor_scatter_nd_update(best_dist, kill_mask, kill_values)
                               
         return best_dist
