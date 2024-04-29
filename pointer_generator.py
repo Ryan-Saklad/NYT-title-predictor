@@ -122,6 +122,8 @@ class AttentionLayer(tf.keras.layers.Layer):
 
     
 class PointerGeneratorLayer(tf.keras.layers.Layer):
+    # initialize layer with the size of the title dictionary,
+    # the hastable to convert abstract words to title words and the title & abstract length
     def __init__(self, title_vocab_size, simple_convert, title_len, abs_len, **kwargs):
         super(PointerGeneratorLayer, self).__init__(**kwargs)
         self.title_vocab_size = title_vocab_size
@@ -133,36 +135,48 @@ class PointerGeneratorLayer(tf.keras.layers.Layer):
         assert isinstance(input_shape, tuple)
         # Create a trainable weight variable for this layer.
         super(PointerGeneratorLayer, self).build(input_shape)  # Be sure to call this at the end  
-    
+
+    # the inputs to the layer are the decoder dist, 
+    # attention outputs, the abstract tokens, and 
+    # two repeat indicies for producing the correct formatted outputs
     def call(self, inputs):
         decoder_outputs, attention_scores, input_sequence, repeat_idx, repeat_idx2 = inputs
         batch_size = tf.shape(attention_scores)[0]
         sequence_len= tf.shape(attention_scores)[1]
         
-        
+        # reshape for the scatter update later
         attention_scores = tf.reshape(attention_scores, [-1])
         
-        # convert the input sequence and apply it to each word of the input sequence (like the decoder dist is)
+        # convert the input sequence from abstract voc to title voc
+        # and apply it to each word of the output sequence (like the decoder dist is) (go from 1x36 to 12x36)
         input_sequence = tf.cast(input_sequence, tf.int32)
         input_sequence = self.simple_convert.lookup(input_sequence)
+        # repeat so their is a converted abstract for each token in the title
         input_sequence = tf.repeat(input_sequence, repeats = sequence_len, axis = 0)
         input_sequence = tf.reshape(input_sequence, [tf.shape(input_sequence)[0],tf.shape(input_sequence)[1], 1])
         
-        # add the title indicies (basically so that the update later knows exactly which word in the title/input sequence to update to)
+        # add the title indicies (basically so that the update later knows exactly 
+        # which word in the title/input sequence to update to)
         repeat_index = repeat_idx[:sequence_len]
+        # use the repeat index ( a list of indicies in list form -- [[0], [1], ....] and select only as many as necessary)
         tiled_index = tf.tile(repeat_index, [(tf.shape(input_sequence)[0]*tf.shape(input_sequence)[1]/tf.shape(repeat_index)[0]), 1])
+        # tile the repeat index to match the abstract
         tiled_index = tf.reshape(tiled_index, [tf.shape(input_sequence)[0],tf.shape(input_sequence)[1], 1])
+        # combine the converted abstract and titled repeat indexes
         input_sequence = tf.concat([tiled_index, input_sequence], axis=2)
+        # the input seuqence can be used now to index into decoder dist (not accounting for batch size)
         
         # add the batch number (so the update later knows which batch to update to)
         repeat_index = repeat_idx2[:batch_size]
+        # tile the repeat index to match batch size
         tiled_index = tf.repeat(repeat_index, repeats = tf.shape(input_sequence)[1]*sequence_len, axis=0) 
         tiled_index = tf.reshape(tiled_index, [tf.shape(input_sequence)[0],tf.shape(input_sequence)[1], 1])
+        # add batch size to input sequence
         input_sequence = tf.concat([tiled_index, input_sequence], axis=2)
         input_sequence = tf.reshape(input_sequence, [batch_size*self.abs_len*sequence_len,3])
         
-        
-        best_dist = tf.tensor_scatter_nd_max(decoder_outputs, input_sequence, attention_scores)
+        # produce the 
+        best_dist = tf.tensor_scatter_nd_update(decoder_outputs, input_sequence, attention_scores)
         
         kill_mask = tf.ones(batch_size*sequence_len, tf.int32)
         kill_values = tf.zeros(batch_size*sequence_len, tf.float32)
